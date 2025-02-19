@@ -1,0 +1,54 @@
+add the Bloom filter file to the Distributed Cache:
+conf.addCacheFile(new URI("/path/to/bloom_filter.bin#bloom_filter.bin")); // #bloom_filter.bin creates a symbolic link
+Mapper:
+
+Setup: In the setup() method of your mapper, read the Bloom filter from the Distributed Cache:
+Path[] cacheFiles = context.getLocalCacheFiles();
+for (Path cacheFile : cacheFiles) {
+    if (cacheFile.getName().equals("bloom_filter.bin")) {
+        try (FileInputStream fis = new FileInputStream(cacheFile.toString())) {
+            bloomFilter = BloomFilter.readFrom(fis); // Assuming you're using a suitable Bloom filter library.  Guava is a good option.
+        }
+        break; // Important: Exit the loop once you've found the filter.
+    }
+}
+Bloom Filter Check: Check if the key might be in the dimension table using the Bloom filter:
+
+Java
+
+if (bloomFilter.mightContain(joinKey)) {
+    // Key *might* be in the dimension table. Emit the record.
+    context.write(joinKey, factTableRecord);
+} else {
+    // Key is definitely *not* in the dimension table.  Do not emit.
+}
+(Conceptual - Guava):
+
+Java
+
+// Mapper setup
+BloomFilter<String> bloomFilter;
+// ... (code to read from Distributed Cache as shown above)
+
+// Mapper map method
+public void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+    String factTableRecord = value.toString();
+    String joinKey = extractJoinKey(factTableRecord);
+
+    if (bloomFilter.mightContain(joinKey)) {
+        context.write(new Text(joinKey), new Text(factTableRecord));
+    }
+}
+
+// Reducer (using in-memory hash table for dimension table - illustrative)
+HashMap<String, String> dimensionTable = new HashMap<>(); // Load in setup()
+public void reduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException {
+    if (dimensionTable.containsKey(key.toString())) { // Actual check
+        for (Text value : values) {
+            // Perform the join
+            String factRecord = value.toString();
+            String dimensionRecord = dimensionTable.get(key.toString());
+            // ... process the joined records
+        }
+    }
+}
